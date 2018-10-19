@@ -11,6 +11,17 @@ https://github.com/newrelic/centurion
 gem install centurion
 centurionize -p <your_project>
 
+bundle exec centurion -p radio-radio -e staging -a rolling_deploy
+bundle exec centurion -p radio-radio -e staging -a deploy
+bundle exec centurion -p radio-radio -e staging -a deploy_console
+bundle exec centurion -p radio-radio -e staging -a repair
+bundle exec centurion -p radio-radio -e staging -a list:running_container_tags
+bundle exec centurion -p radio-radio -e staging -a list:running_containers
+bundle exec centurion -p radio-radio -e staging -a list
+centurion -e development -a deploy -p radio-radio --override-env=SERVICE_PORT=8000,NAME=radio
+bundle exec centurion -e development -p testing_project -a dev:export_only
+bundle exec rake spec
+
 ```
 
 ```ruby
@@ -40,7 +51,7 @@ namespace :environment
   end
 end
 
-desc ''
+desc 'Host-specific env vars'
 task :production => :common do
   env_vars MEMBER_ID: lambda do |hostname|
     {
@@ -95,14 +106,52 @@ add_security_opt 'seccomp=/path/to/seccomp/profile.json'
 add_security_opt 'seccomp=unconfined'
 
 task :production => :common do
+  set :tlsverify, true
+end
+
+task :production => :common do
+  set :tlsverify, true
+  set :tlscacert, '/usr/local/certs/ca.pem'
+  set :tlscert, '/usr/local/certs/ssl.crt'
+  set :tlskey, '/usr/local/certs/ssl.key'
+end
+
+task :common do
+  set :ssh, true
+  set :ssh_user, "myuser"
+  set :ssh_log_level, Logger::DEBUG
 end
 
 
+def cluster_green?(target_server, port, endpoint)
+  response = begin
+    Excon.get("http://#{target_server.hostname}:#{port}#{endpoint}")
+  rescue Excon::Errors::SocketError
+    warn "Elasticserch node not yet up"
+    nil
+  end
+  return false unless response
+  !JSON.parse(response)['timed_out']
+end
+task :producton => :common do
+  set_current_environment(:production)
+  set :status_endpoint, ""
+  health_check method(:cluster_green?)
+  host_port 9200, container_port: 9200
+  host 'es-01.example.com'
+  host 'es-02.example.com'
+end
 
 
-
-
-
+namespace :environment do
+  task :common do
+    registry :dogestry
+    set :aws_access_key_id, 'abc123'
+    set :aws_secret_key, 'xyz'
+    set :s3_bucket, 'docker-images-bucket'
+    set :s3_region, 'us-east-1'
+  end
+end
 
 ```
 
